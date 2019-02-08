@@ -158,6 +158,7 @@ function ApiCache() {
     res._apicache = {
       write: res.write,
       writeHead: res.writeHead,
+      send: res.send,
       end: res.end,
       cacheable: true,
       content: undefined
@@ -188,8 +189,24 @@ function ApiCache() {
       return res._apicache.write.apply(this, arguments)
     }
 
+    var sendBody
+
+    res.send = function(body) {
+      sendBody = body
+      return res._apicache.send.apply(this, arguments)
+    }
+
     // patch res.end
     res.end = function(content, encoding) {
+      res.writeHead(res.statusCode, res['_headers'])
+      if (res.statusCode === 304 && sendBody) {
+        var buffer = Buffer.from(sendBody, 'utf8')
+        res._apicache.content = buffer
+        res._apicache.headers['content-length'] = '' + buffer.length
+        res._apicache.headers['content-type'] = 'application/json; charset=utf-8'
+        res._apicache.statusCode = 200;
+      }
+
       if (shouldCacheResponse(req, res, toggle)) {
 
         accumulateContent(res, content)
@@ -197,7 +214,7 @@ function ApiCache() {
         if (res._apicache.cacheable && res._apicache.content) {
           addIndexEntries(key, req)
           var headers = res._apicache.headers || res._headers
-          var cacheObject = createCacheObject(res.statusCode, headers, res._apicache.content, encoding)
+          var cacheObject = createCacheObject(res._apicache.statusCode || res.statusCode, headers, res._apicache.content, encoding)
           cacheResponse(key, cacheObject, duration)
 
           // display log entry
